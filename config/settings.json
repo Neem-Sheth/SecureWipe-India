@@ -1,0 +1,56 @@
+{
+  "app_name": "SecureWipe India",
+  "version": "1.0.0",
+  "nist_compliance": {
+    "default_level": "purge",
+    "supported_levels": [
+      "clear",
+      "purge",
+      "destroy"
+    ],
+    "verification_passes": 3
+  },
+  "certificate": {
+    "key_size": 4096,
+    "hash_algorithm": "SHA256",
+    "validity_days": 3650,
+    "blockchain_network": "ethereum_testnet"
+  },
+  "ui": {
+    "languages": [
+      "en",
+      "hi",
+      "ta",
+      "te",
+      "bn",
+      "gu",
+      "kn",
+      "ml",
+      "or",
+      "pa",
+      "as",
+      "mr"
+    ],
+    "theme": "material_design",
+    "accessibility": true
+  },
+  "platforms": {
+    "windows": {
+      "admin_required": true,
+      "supported_versions": [
+        "7",
+        "8",
+        "10",
+        "11"
+      ]
+    },
+    "linux": {
+      "root_required": true,
+      "min_kernel": "4.4"
+    },
+    "android": {
+      "min_api_level": 23,
+      "root_preferred": true
+    }
+  }
+}

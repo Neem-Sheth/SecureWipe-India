@@ -1,0 +1,23 @@
+# Core dependencies
+cryptography>=3.4.8
+psutil>=5.8.0
+click>=8.0.0
+qrcode[pil]>=7.3.1
+reportlab>=3.6.0
+PyPDF2>=2.12.1
+requests>=2.28.0
+colorama>=0.4.4
+tqdm>=4.64.0
+
+# GUI dependencies (optional)
+PyQt5>=5.15.4
+
+# Development dependencies
+pytest>=7.0.0
+black>=22.0.0
+flake8>=4.0.0
+
+# Platform-specific dependencies
+# Windows: pywin32>=304
+# Linux: python3-dev, libssl-dev
+# Android: kivy>=2.1.0, python-for-android>=2022.03.13

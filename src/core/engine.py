@@ -35,12 +35,20 @@ class SecureWipeEngine:
         self.config = self._load_config(config_path)
         self.logger = self._setup_logger()
         
-        # Initialize components
-        from .sanitizer import DataSanitizer
-        from .detector import StorageDetector
-        from .nist_compliance import NISTCompliance
-        from ..certificate.generator import CertificateGenerator
-        
+        # Initialize components. Try importing via package-qualified names
+        # (when running via the project entrypoint that adds 'src' to sys.path),
+        # otherwise fall back to local relative imports.
+        try:
+            from src.core.sanitizer import DataSanitizer
+            from src.core.detector import StorageDetector
+            from src.core.nist_compliance import NISTCompliance
+            from src.certificate.generator import CertificateGenerator
+        except Exception:
+            from .sanitizer import DataSanitizer
+            from .detector import StorageDetector
+            from .nist_compliance import NISTCompliance
+            from ..certificate.generator import CertificateGenerator
+
         self.detector = StorageDetector()
         self.sanitizer = DataSanitizer()
         self.nist = NISTCompliance()
@@ -80,13 +88,22 @@ class SecureWipeEngine:
         """Load platform-specific implementation"""
         try:
             if self.platform == "windows":
-                from ..platforms.windows import WindowsPlatform
+                try:
+                    from src.platforms.windows import WindowsPlatform
+                except Exception:
+                    from ..platforms.windows import WindowsPlatform
                 self.platform_impl = WindowsPlatform()
             elif self.platform == "linux":
-                from ..platforms.linux import LinuxPlatform
+                try:
+                    from src.platforms.linux import LinuxPlatform
+                except Exception:
+                    from ..platforms.linux import LinuxPlatform
                 self.platform_impl = LinuxPlatform()
             elif self.platform == "android":
-                from ..platforms.android import AndroidPlatform
+                try:
+                    from src.platforms.android import AndroidPlatform
+                except Exception:
+                    from src.platforms.android import AndroidPlatform
                 self.platform_impl = AndroidPlatform()
             else:
                 print(f"Platform {self.platform} not fully supported, using basic implementation")

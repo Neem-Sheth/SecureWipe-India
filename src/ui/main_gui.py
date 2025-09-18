@@ -27,9 +27,13 @@ except ImportError:
     print("PyQt5 not available. Install with: pip install PyQt5")
 
 if PYQT_AVAILABLE:
-    # Import core modules
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from core.engine import SecureWipeEngine, WipeLevel, WipeResult
+    # Import core modules. Prefer 'src.' package imports when running via
+    # the project entrypoint which adds 'src' to sys.path; fall back to
+    # local imports for direct execution.
+    try:
+        from src.core.engine import SecureWipeEngine, WipeLevel, WipeResult
+    except Exception:
+        from core.engine import SecureWipeEngine, WipeLevel, WipeResult
 
 class WipeWorkerThread(QThread):
     """Worker thread for data wiping operations"""

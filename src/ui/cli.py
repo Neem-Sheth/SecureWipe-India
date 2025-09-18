@@ -11,16 +11,21 @@ import logging
 from typing import Optional
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# Attempt robust imports: prefer package-style 'src.*' imports when the
+# project is executed as a package (for example via main.py), but fall
+# back to local imports to support running this file directly.
 try:
-    from core.engine import SecureWipeEngine, WipeLevel, WipeResult
-    from utils.logger import setup_logger
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Make sure you're running from the correct directory")
-    sys.exit(1)
+    from src.core.engine import SecureWipeEngine, WipeLevel, WipeResult
+    from src.utils.logger import setup_logger
+except Exception:
+    try:
+        # Fallback for environments where src is on sys.path
+        from core.engine import SecureWipeEngine, WipeLevel, WipeResult
+        from utils.logger import setup_logger
+    except Exception as e:
+        print(f"Import error: {e}")
+        print("Make sure you're running from the project root or via main.py")
+        sys.exit(1)
 
 class SecureWipeCLI:
     """Command line interface for SecureWipe India"""

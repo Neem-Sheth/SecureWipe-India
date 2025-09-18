@@ -38,16 +38,28 @@ class SecureWipeEngine:
         # Initialize components. Try importing via package-qualified names
         # (when running via the project entrypoint that adds 'src' to sys.path),
         # otherwise fall back to local relative imports.
+        # Import the internal components. Different run contexts add 'src' to sys.path
+        # in different ways. Try a few import styles to be robust:
+        # 1) top-level package modules when 'src' is on sys.path (import as core.*)
+        # 2) package-qualified imports (import as src.core.*)
+        # 3) relative imports as a last resort (when running as a package)
         try:
-            from src.core.sanitizer import DataSanitizer
-            from src.core.detector import StorageDetector
-            from src.core.nist_compliance import NISTCompliance
-            from src.certificate.generator import CertificateGenerator
+            from core.sanitizer import DataSanitizer
+            from core.detector import StorageDetector
+            from core.nist_compliance import NISTCompliance
+            from certificate.generator import CertificateGenerator
         except Exception:
-            from .sanitizer import DataSanitizer
-            from .detector import StorageDetector
-            from .nist_compliance import NISTCompliance
-            from ..certificate.generator import CertificateGenerator
+            try:
+                from src.core.sanitizer import DataSanitizer
+                from src.core.detector import StorageDetector
+                from src.core.nist_compliance import NISTCompliance
+                from src.certificate.generator import CertificateGenerator
+            except Exception:
+                # fallback to relative imports when running as a package
+                from .sanitizer import DataSanitizer
+                from .detector import StorageDetector
+                from .nist_compliance import NISTCompliance
+                from ..certificate.generator import CertificateGenerator
 
         self.detector = StorageDetector()
         self.sanitizer = DataSanitizer()
@@ -183,6 +195,19 @@ class SecureWipeEngine:
             if "error" in analysis:
                 result.error_message = analysis["error"]
                 return result
+
+            # Safety: check lock file (if present) to ensure intentional target
+            lock = self._read_lock()
+            if lock:
+                lock_path = lock.get('path')
+                lock_phys = lock.get('physical_device')
+                # If lock file exists, require exact match to prevent accidental wipes
+                if lock_path and lock_path != device_path:
+                    result.error_message = f"Lock file requires target {lock_path}; requested {device_path}"
+                    return result
+                if lock_phys and analysis.get('physical_device') and lock_phys != analysis.get('physical_device'):
+                    result.error_message = f"Lock file requires physical device {lock_phys}; requested {analysis.get('physical_device')}"
+                    return result
             
             # Check if device supports requested wipe level
             if wipe_level.value not in analysis.get("nist_methods", []):
@@ -228,6 +253,26 @@ class SecureWipeEngine:
                 self.platform_impl.cleanup_device(device_path)
         
         return result
+
+    def _read_lock(self) -> Optional[Dict]:
+        """Read a JSON lock file at config/lock.json if present.
+
+        Lock structure example:
+        {
+            "path": "E:\\",
+            "physical_device": "\\\\.\\PhysicalDrive1",
+            "created_by": "operator",
+            "created_at": 1630000000
+        }
+        """
+        lock_path = os.path.join('config', 'lock.json')
+        try:
+            if os.path.exists(lock_path):
+                with open(lock_path, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.logger.warning(f"Failed to read lock file: {e}")
+        return None
     
     def _execute_clear_wipe(self, device_path: str, progress_callback) -> bool:
         """Execute NIST Clear level wipe (single pass)"""

@@ -108,6 +108,9 @@ class StorageDetector:
         info = {
             "path": device_path,
             "name": os.path.basename(device_path),
+            "serial": "Unknown",
+            "model": "Unknown",
+            "physical_device": device_path,
             "size_bytes": 0,
             "size_gb": 0,
             "device_type": "unknown",
@@ -132,6 +135,23 @@ class StorageDetector:
                     info["size_gb"] = usage.total / (1024**3)
                 except Exception:
                     pass
+            # Attempt to get serial and model if available
+            try:
+                serial = self.get_device_serial(device_path)
+                model = self.get_device_model(device_path)
+                if serial:
+                    info["serial"] = serial
+                if model:
+                    info["model"] = model
+            except Exception:
+                self.logger.debug("Could not determine serial/model for %s", device_path)
+            # Attempt to determine physical device identifier (Windows: PhysicalDriveN)
+            try:
+                phys = self._get_physical_device(device_path)
+                if phys:
+                    info["physical_device"] = phys
+            except Exception:
+                self.logger.debug("Could not determine physical device for %s", device_path)
             
         except Exception as e:
             self.logger.error(f"Failed to get device info for {device_path}: {e}")
@@ -223,3 +243,22 @@ class StorageDetector:
             self.logger.debug(f"Failed to get model for {device_path}: {e}")
         
         return "Unknown"
+
+    def _get_physical_device(self, device_path: str) -> str:
+        """Best-effort mapping from logical mount to physical device. On Windows try WMIC."""
+        try:
+            if os.name == 'nt':
+                # device_path like 'C:\\'
+                drive = device_path[:2]
+                cmd = ['wmic', 'logicaldisk', 'where', f'DeviceID="{drive}"', 'assoc', '/assocclass:Win32_LogicalDiskToPartition']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                out = (result.stdout or '') + (result.stderr or '')
+                m = re.search(r'PhysicalDrive(\d+)', out)
+                if m:
+                    return f"\\\\.\\PhysicalDrive{m.group(1)}"
+                return device_path
+            else:
+                return device_path
+        except Exception as e:
+            self.logger.debug(f"Physical device lookup failed for {device_path}: {e}")
+            return device_path

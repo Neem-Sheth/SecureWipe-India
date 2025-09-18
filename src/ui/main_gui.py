@@ -9,6 +9,7 @@ import json
 from typing import Optional, Dict, List
 from datetime import datetime
 import logging
+import time
 
 try:
     from PyQt5.QtWidgets import (
@@ -19,6 +20,7 @@ try:
         QTabWidget, QGroupBox, QTableWidget, QTableWidgetItem,
         QSplitter, QFrame
     )
+    from PyQt5.QtWidgets import QInputDialog
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
     from PyQt5.QtGui import QFont, QPixmap, QIcon, QPalette, QColor
     PYQT_AVAILABLE = True
@@ -210,7 +212,11 @@ class MainWindow(QMainWindow):
         
         # Main layout
         main_layout = QVBoxLayout()
-        
+        # Warning banner
+        warning_label = QLabel("⚠️  WARNING: Wiping a device will PERMANENTLY ERASE ALL DATA.\nMake sure you select the correct physical device before proceeding.")
+        warning_label.setStyleSheet("background-color: #ffcccc; color: #800000; padding: 10px; border: 1px solid #800000;")
+        warning_label.setWordWrap(True)
+        main_layout.addWidget(warning_label)
         # Header
         header = self.create_header()
         main_layout.addWidget(header)
@@ -294,8 +300,9 @@ class MainWindow(QMainWindow):
         
         # Device list
         self.device_table = QTableWidget()
-        self.device_table.setColumnCount(4)
-        self.device_table.setHorizontalHeaderLabels(["Device", "Size", "Type", "Status"])
+        # Add a Physical ID column to show device serial/model to avoid accidental selection
+        self.device_table.setColumnCount(5)
+        self.device_table.setHorizontalHeaderLabels(["Device", "Physical ID", "Size", "Type", "Status"])
         self.device_table.setSelectionBehavior(QTableWidget.SelectRows)
         device_layout.addWidget(self.device_table)
         
@@ -420,23 +427,27 @@ class MainWindow(QMainWindow):
     def update_device_table(self):
         """Update the device table with current devices"""
         self.device_table.setRowCount(len(self.devices))
-        
+
         for row, device in enumerate(self.devices):
             # Device path
-            self.device_table.setItem(row, 0, QTableWidgetItem(device['path']))
-            
+            self.device_table.setItem(row, 0, QTableWidgetItem(device.get('path', '')))
+
+            # Physical ID (serial or model)
+            physical_id = device.get('serial') or device.get('model') or 'Unknown'
+            self.device_table.setItem(row, 1, QTableWidgetItem(physical_id))
+
             # Size
             size_gb = device.get('size_gb', 0)
             size_text = f"{size_gb:.2f} GB" if size_gb > 0 else "Unknown"
-            self.device_table.setItem(row, 1, QTableWidgetItem(size_text))
-            
+            self.device_table.setItem(row, 2, QTableWidgetItem(size_text))
+
             # Type
             device_type = device.get('device_type', 'unknown').title()
-            self.device_table.setItem(row, 2, QTableWidgetItem(device_type))
-            
+            self.device_table.setItem(row, 3, QTableWidgetItem(device_type))
+
             # Status
             status = "Ready" if device.get('mount_point') else "Unmounted"
-            self.device_table.setItem(row, 3, QTableWidgetItem(status))
+            self.device_table.setItem(row, 4, QTableWidgetItem(status))
         
         self.device_table.resizeColumnsToContents()
     
@@ -462,6 +473,12 @@ class MainWindow(QMainWindow):
             # Confirmation dialog
             if not self.confirm_wipe(device_path, wipe_level):
                 return
+
+            # Create a lock file to ensure deliberate target (writes config/lock.json)
+            physical = dialog.selected_device.get('physical_device') or dialog.selected_device.get('serial') or ''
+            if not self.create_lock_file(device_path, physical):
+                QMessageBox.critical(self, "Lock Error", "Failed to create lock file. Aborting.")
+                return
             
             # Start wipe thread
             self.wipe_thread = WipeWorkerThread(self.engine, device_path, wipe_level)
@@ -481,18 +498,29 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.log_message(f"Failed to start wipe: {e}")
             QMessageBox.critical(self, "Error", f"Failed to start wipe operation:\\n{e}")
+
+    def create_lock_file(self, path: str, physical_device: str) -> bool:
+        """Write a lock file to config/lock.json to mark the intended wipe target."""
+        try:
+            os.makedirs('config', exist_ok=True)
+            lock = {
+                'path': path,
+                'physical_device': physical_device,
+                'created_by': os.getlogin() if hasattr(os, 'getlogin') else 'unknown',
+                'created_at': time.time()
+            }
+            with open(os.path.join('config', 'lock.json'), 'w') as f:
+                json.dump(lock, f, indent=2)
+            self.log_message(f"Lock file created for {path} ({physical_device})")
+            return True
+        except Exception as e:
+            self.log_message(f"Failed to write lock file: {e}")
+            return False
     
     def confirm_wipe(self, device_path: str, wipe_level: WipeLevel) -> bool:
         """Show confirmation dialog for wipe operation"""
-        message = f"""WARNING: This operation will permanently destroy all data on the selected device.
-        
-Device: {device_path}
-Wipe Level: {wipe_level.value.upper()}
-
-This action cannot be undone. All data will be irrecoverable.
-
-Are you sure you want to proceed?"""
-        
+        # First confirm with Yes/No
+        message = f"WARNING: This operation will permanently destroy all data on the selected device.\n\nDevice: {device_path}\nWipe Level: {wipe_level.value.upper()}\n\nThis action cannot be undone."
         reply = QMessageBox.question(
             self,
             "Confirm Data Wipe",
@@ -500,8 +528,27 @@ Are you sure you want to proceed?"""
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
-        return reply == QMessageBox.Yes
+
+        if reply != QMessageBox.Yes:
+            return False
+
+        # Second confirm: require typing CONFIRM to proceed
+        text, ok = QInputDialog.getText(self, "Type CONFIRM to proceed", f"Type 'CONFIRM' to permanently wipe {device_path}:")
+        if not ok:
+            return False
+
+        if text.strip().upper() != "CONFIRM":
+            QMessageBox.warning(self, "Confirmation Failed", "You did not type CONFIRM. Operation cancelled.")
+            return False
+
+        # Third confirm: checkbox acknowledgment dialog
+        confirm_dialog = QMessageBox(self)
+        confirm_dialog.setIcon(QMessageBox.Warning)
+        confirm_dialog.setWindowTitle("Final Confirmation")
+        confirm_dialog.setText("Final check: Are you completely sure you want to proceed with this irreversible operation?")
+        confirm_dialog.setStandardButtons(QMessageBox.Cancel | QMessageBox.Ok)
+        final = confirm_dialog.exec_()
+        return final == QMessageBox.Ok
     
     def cancel_wipe(self):
         """Cancel the current wipe operation"""

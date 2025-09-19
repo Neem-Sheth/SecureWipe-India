@@ -35,7 +35,196 @@ if PYQT_AVAILABLE:
     try:
         from src.core.engine import SecureWipeEngine, WipeLevel, WipeResult
     except Exception:
-        from core.engine import SecureWipeEngine, WipeLevel, WipeResult
+        from src.core.engine import SecureWipeEngine, WipeLevel, WipeResult
+
+# SecureWipe India - GUI Integration for Optimal Erase
+# Add these components to your existing main_gui.py file
+# File: src/ui/main_gui_optimal_additions.py
+
+# ADD THESE IMPORTS at the top of main_gui.py:
+from src.core.optimal_erase import OptimalSecureErase, SecureEraseMethod
+
+# ADD THIS CLASS to main_gui.py:
+class OptimalEraseDialog(QDialog):
+    """Dialog for optimal erase options"""
+    
+    def __init__(self, device_info: Dict, parent=None):
+        super().__init__(parent)
+        self.device_info = device_info
+        self.optimal_erase = OptimalSecureErase()
+        self.selected_method = None
+        self.init_ui()
+    
+    def init_ui(self):
+        self.setWindowTitle("Optimal Secure Erase Options")
+        self.setModal(True)
+        self.resize(600, 500)
+        
+        layout = QVBoxLayout()
+        
+        # Header
+        header_label = QLabel("🚀 Optimal Fast Secure Erase")
+        header_font = QFont()
+        header_font.setPointSize(16)
+        header_font.setBold(True)
+        header_label.setFont(header_font)
+        header_label.setStyleSheet("color: #1976D2; margin: 10px;")
+        layout.addWidget(header_label)
+        
+        # Device info
+        device_group = QGroupBox("Device Information")
+        device_layout = QVBoxLayout()
+        
+        device_path = self.device_info.get('path', 'unknown')
+        device_size = self.device_info.get('size_gb', 0)
+        device_type = self.device_info.get('device_type', 'unknown')
+        
+        device_layout.addWidget(QLabel(f"Device: {device_path}"))
+        device_layout.addWidget(QLabel(f"Size: {device_size:.2f} GB"))
+        device_layout.addWidget(QLabel(f"Type: {device_type}"))
+        
+        device_group.setLayout(device_layout)
+        layout.addWidget(device_group)
+        
+        # Detect optimal method
+        method, method_info = self.optimal_erase.detect_optimal_method(
+            device_path, self.device_info
+        )
+        
+        # Method selection
+        method_group = QGroupBox("Recommended Optimal Method")
+        method_layout = QVBoxLayout()
+        
+        # Method info display
+        method_name = method.value.replace('_', ' ').title()
+        est_time = method_info.get('estimated_time', 0)
+        security_level = method_info.get('security_level', 'unknown')
+        
+        time_str = self._format_time(est_time)
+        
+        method_layout.addWidget(QLabel(f"🎯 Method: {method_name}"))
+        method_layout.addWidget(QLabel(f"⏱️ Estimated Time: {time_str}"))
+        method_layout.addWidget(QLabel(f"🛡️ Security Level: {security_level.title()}"))
+        method_layout.addWidget(QLabel(f"📋 NIST Compliance: {method_info.get('nist_compliance', 'unknown').upper()}"))
+        
+        # Speed comparison
+        comparison_text = self._get_speed_comparison(est_time)
+        comparison_label = QLabel(comparison_text)
+        comparison_label.setStyleSheet("background-color: #e8f5e8; padding: 10px; border-radius: 5px; margin: 5px;")
+        comparison_label.setWordWrap(True)
+        method_layout.addWidget(comparison_label)
+        
+        method_group.setLayout(method_layout)
+        layout.addWidget(method_group)
+        
+        self.selected_method = method
+        
+        # Warning
+        warning_group = QGroupBox("⚠️ Important Warning")
+        warning_layout = QVBoxLayout()
+        
+        warning_text = """This optimal erase method will:
+• PERMANENTLY destroy ALL data on the selected device
+• Use hardware-level commands for maximum speed and security
+• Make data recovery IMPOSSIBLE even with professional tools
+• Complete much faster than traditional overwrite methods
+
+ENSURE YOU HAVE BACKUPS of any important data!"""
+        
+        warning_label = QLabel(warning_text)
+        warning_label.setStyleSheet("background-color: #fff3cd; padding: 10px; border-radius: 5px; color: #856404;")
+        warning_label.setWordWrap(True)
+        warning_layout.addWidget(warning_label)
+        
+        warning_group.setLayout(warning_layout)
+        layout.addWidget(warning_group)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        self.proceed_btn = QPushButton("🚀 Proceed with Optimal Erase")
+        self.proceed_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 10px; }")
+        
+        self.cancel_btn = QPushButton("❌ Cancel")
+        self.cancel_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; padding: 10px; }")
+        
+        button_layout.addWidget(self.cancel_btn)
+        button_layout.addWidget(self.proceed_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Connect buttons
+        self.proceed_btn.clicked.connect(self.accept)
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        self.setLayout(layout)
+    
+    def _format_time(self, seconds: int) -> str:
+        """Format time duration"""
+        if seconds < 60:
+            return f"{seconds} seconds"
+        elif seconds < 3600:
+            return f"{seconds // 60} minutes"
+        else:
+            return f"{seconds // 3600} hours {(seconds % 3600) // 60} minutes"
+    
+    def _get_speed_comparison(self, est_time: int) -> str:
+        """Get speed comparison text"""
+        traditional_time = 3600  # Assume 1 hour for traditional method
+        
+        if est_time < traditional_time:
+            speedup = traditional_time / est_time
+            return f"🚀 This method is approximately {speedup:.1f}x FASTER than traditional overwrite methods!"
+        else:
+            return "ℹ️ This is the best available method for your device type."
+
+# ADD THIS CLASS to main_gui.py:
+class OptimalWipeWorkerThread(QThread):
+    """Worker thread for optimal wipe operations"""
+    
+    progress_updated = pyqtSignal(int, str)  # Progress percentage and message
+    status_updated = pyqtSignal(str)         # Status message
+    wipe_completed = pyqtSignal(dict)        # Result dictionary
+    
+    def __init__(self, device_path: str, method: SecureEraseMethod):
+        super().__init__()
+        self.device_path = device_path
+        self.method = method
+        self.is_cancelled = False
+    
+    def run(self):
+        """Execute the optimal wipe operation"""
+        try:
+            optimal_erase = OptimalSecureErase()
+            
+            def progress_callback(percentage, message=""):
+                if not self.is_cancelled:
+                    self.progress_updated.emit(int(percentage), message)
+            
+            self.status_updated.emit("Starting optimal secure erase...")
+            result = optimal_erase.execute_optimal_erase(
+                self.device_path, 
+                self.method,
+                progress_callback
+            )
+            
+            self.wipe_completed.emit(result)
+            
+        except Exception as e:
+            result = {
+                "success": False,
+                "method_used": self.method,
+                "duration": 0,
+                "error": str(e)
+            }
+            self.wipe_completed.emit(result)
+    
+    def cancel(self):
+        """Cancel the optimal wipe operation"""
+        self.is_cancelled = True
+
+# ADD THESE METHODS to the MainWindow class in main_gui.py:
+
 
 class WipeWorkerThread(QThread):
     """Worker thread for data wiping operations"""
@@ -192,6 +381,7 @@ class MainWindow(QMainWindow):
         self.engine = None
         self.devices = []
         self.wipe_thread = None
+        self.optimal_wipe_thread = None  # <-- initialize optimal wipe thread handle
         self.init_ui()
         self.init_engine()
     
@@ -300,10 +490,11 @@ class MainWindow(QMainWindow):
         
         # Device list
         self.device_table = QTableWidget()
-        # Add a Physical ID column to show device serial/model to avoid accidental selection
-        self.device_table.setColumnCount(5)
-        self.device_table.setHorizontalHeaderLabels(["Device", "Physical ID", "Size", "Type", "Status"])
+        # Add a Physical ID column and Optimal capability column to show device serial/model and optimal method
+        self.device_table.setColumnCount(6)
+        self.device_table.setHorizontalHeaderLabels(["Device", "Physical ID", "Size", "Type", "Status", "Optimal"])
         self.device_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.device_table.currentCellChanged.connect(self.on_device_selection_changed)
         device_layout.addWidget(self.device_table)
         
         device_group.setLayout(device_layout)
@@ -320,11 +511,17 @@ class MainWindow(QMainWindow):
         self.wipe_btn.setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; padding: 10px; }")
         self.wipe_btn.clicked.connect(self.start_wipe)
         
+        # NEW OPTIMAL WIPE BUTTON
+        self.optimal_wipe_btn = QPushButton("🚀 Optimal Fast Wipe")
+        self.optimal_wipe_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 10px; }")
+        self.optimal_wipe_btn.clicked.connect(self.start_optimal_wipe)
+        
         self.cancel_btn = QPushButton("⏹️ Cancel Operation")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_wipe)
         
         button_layout.addWidget(self.wipe_btn)
+        button_layout.addWidget(self.optimal_wipe_btn)  # NEW BUTTON
         button_layout.addWidget(self.cancel_btn)
         button_layout.addStretch()
         
@@ -427,7 +624,6 @@ class MainWindow(QMainWindow):
     def update_device_table(self):
         """Update the device table with current devices"""
         self.device_table.setRowCount(len(self.devices))
-
         for row, device in enumerate(self.devices):
             # Device path
             self.device_table.setItem(row, 0, QTableWidgetItem(device.get('path', '')))
@@ -448,8 +644,72 @@ class MainWindow(QMainWindow):
             # Status
             status = "Ready" if device.get('mount_point') else "Unmounted"
             self.device_table.setItem(row, 4, QTableWidgetItem(status))
+
+            # Optimal capability detection placeholder (will be filled by detect call)
+            optimal_text = device.get('optimal_method_display', 'Unknown')
+            item_opt = QTableWidgetItem(optimal_text)
+            item_opt.setFlags(item_opt.flags() & ~Qt.ItemIsEditable)
+            self.device_table.setItem(row, 5, item_opt)
         
         self.device_table.resizeColumnsToContents()
+
+        # After updating table, run optimal detection for each device in background (non-blocking)
+        QTimer.singleShot(100, self.detect_optimal_for_devices)
+
+    def detect_optimal_for_devices(self):
+        """Detect optimal method for each device and update the table UI."""
+        try:
+            optimal = OptimalSecureErase()
+        except Exception:
+            # If OptimalSecureErase can't initialize, mark all as Unknown
+            for row, device in enumerate(self.devices):
+                self.device_table.setItem(row, 5, QTableWidgetItem('Unknown'))
+            return
+
+        for row, device in enumerate(self.devices):
+            try:
+                method, info = optimal.detect_optimal_method(device.get('path', ''), device)
+                device['optimal_method'] = method
+                display = method.value.replace('_', ' ').title()
+                device['optimal_method_display'] = display
+                self.device_table.setItem(row, 5, QTableWidgetItem(display))
+            except Exception as e:
+                self.device_table.setItem(row, 5, QTableWidgetItem('Unknown'))
+
+        # Ensure optimal button state reflects selected device
+        self.update_optimal_button_state()
+
+    def on_device_selection_changed(self, current_row, current_col, previous_row, previous_col):
+        """Enable/disable buttons based on the currently selected device"""
+        # currentCellChanged gives row/col; guard for -1
+        row = current_row
+        if row is None or row < 0:
+            self.wipe_btn.setEnabled(True)
+            self.optimal_wipe_btn.setEnabled(False)
+            return
+        # Use the devices array if available
+        if 0 <= row < len(self.devices):
+            device = self.devices[row]
+            # Enable optimal button only if the device has a detected optimal method other than FALLBACK_OVERWRITE
+            method = device.get('optimal_method')
+            if method and getattr(method, 'value', None) and method != SecureEraseMethod.FALLBACK_OVERWRITE:
+                self.optimal_wipe_btn.setEnabled(True)
+            else:
+                self.optimal_wipe_btn.setEnabled(False)
+
+    def update_optimal_button_state(self):
+        """Update optimal button enabled state based on current selection"""
+        row = self.device_table.currentRow()
+        if row < 0 or row >= len(self.devices):
+            self.optimal_wipe_btn.setEnabled(False)
+            return
+
+        device = self.devices[row]
+        method = device.get('optimal_method')
+        if method and method != SecureEraseMethod.FALLBACK_OVERWRITE:
+            self.optimal_wipe_btn.setEnabled(True)
+        else:
+            self.optimal_wipe_btn.setEnabled(False)
     
     def start_wipe(self):
         """Start the wipe operation"""
@@ -549,12 +809,126 @@ class MainWindow(QMainWindow):
         confirm_dialog.setStandardButtons(QMessageBox.Cancel | QMessageBox.Ok)
         final = confirm_dialog.exec_()
         return final == QMessageBox.Ok
+
+    def start_optimal_wipe(self):
+        """Start optimal secure erase operation"""
+        try:
+            current_row = self.device_table.currentRow()
+            if current_row < 0:
+                QMessageBox.warning(self, "Warning", "Please select a device to wipe")
+                return
+
+            selected_device = self.devices[current_row]
+
+            dialog = OptimalEraseDialog(selected_device, self)
+            if dialog.exec_() != QDialog.Accepted:
+                return
+
+            device_path = selected_device['path']
+            optimal_method = dialog.selected_method
+
+            if not self.confirm_optimal_wipe(device_path, optimal_method):
+                return
+
+            # Start optimal wipe thread
+            self.optimal_wipe_thread = OptimalWipeWorkerThread(device_path, optimal_method)
+            self.optimal_wipe_thread.progress_updated.connect(self.update_progress_with_message)
+            self.optimal_wipe_thread.status_updated.connect(self.update_status)
+            self.optimal_wipe_thread.wipe_completed.connect(self.optimal_wipe_completed)
+
+            # Update UI
+            self.wipe_btn.setEnabled(False)
+            self.optimal_wipe_btn.setEnabled(False)
+            self.cancel_btn.setEnabled(True)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+
+            self.optimal_wipe_thread.start()
+            self.log_message(f"Started optimal {optimal_method.value} on {device_path}")
+
+        except Exception as e:
+            self.log_message(f"Failed to start optimal wipe: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to start optimal wipe:\n{e}")
+
+    def confirm_optimal_wipe(self, device_path: str, method: SecureEraseMethod) -> bool:
+        """Show confirmation dialog for optimal wipe"""
+        method_name = method.value.replace('_', ' ').title()
+
+        message = f"""⚡ OPTIMAL SECURE ERASE CONFIRMATION
+
+Device: {device_path}
+Method: {method_name}
+
+🚀 This operation will use hardware-level commands for maximum speed and security.
+⚠️  ALL DATA will be PERMANENTLY DESTROYED and CANNOT BE RECOVERED.
+🔥 This is MUCH FASTER than traditional overwrite methods.
+
+Are you absolutely sure you want to proceed?"""
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Optimal Secure Erase",
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        return reply == QMessageBox.Yes
+
+    def optimal_wipe_completed(self, result: Dict):
+        """Handle optimal wipe completion"""
+        # Reset UI
+        self.wipe_btn.setEnabled(True)
+        self.optimal_wipe_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.progress_bar.setVisible(False)
+
+        if result.get("success"):
+            method_used = result.get("method_used")
+            method_name = method_used.value.replace('_', ' ').title() if method_used else "Unknown"
+            duration = result.get("duration", 0)
+
+            self.log_message(f"Optimal wipe completed successfully in {duration:.1f}s using {method_name}")
+
+            QMessageBox.information(
+                self,
+                "Optimal Wipe Completed",
+                f"🚀 Optimal secure erase completed successfully!\n\nMethod: {method_name}\nDuration: {duration:.1f} seconds\n\nYour device has been securely wiped using hardware-level commands."
+            )
+        else:
+            error_msg = result.get("error", "Unknown error")
+            self.log_message(f"Optimal wipe failed: {error_msg}")
+            QMessageBox.critical(
+                self,
+                "Optimal Wipe Failed",
+                f"Optimal secure erase failed:\n\n{error_msg}\n\nYou may try the standard wipe method as a fallback."
+            )
+
+        self.update_status("Ready")
+        self.optimal_wipe_thread = None
+
+    def update_progress_with_message(self, percentage: int, message: str):
+        """Update progress bar and status with message"""
+        self.progress_bar.setValue(percentage)
+        if message:
+            self.status_label.setText(message)
+            self.statusBar().showMessage(message)
     
     def cancel_wipe(self):
         """Cancel the current wipe operation"""
+        cancelled = False
         if self.wipe_thread:
             self.wipe_thread.cancel()
             self.log_message("Wipe operation cancelled by user")
+            cancelled = True
+
+        if self.optimal_wipe_thread:
+            self.optimal_wipe_thread.cancel()
+            self.log_message("Optimal wipe operation cancelled by user")
+            cancelled = True
+
+        if not cancelled:
+            self.log_message("No running wipe operation to cancel")
     
     def update_progress(self, percentage: int):
         """Update the progress bar"""

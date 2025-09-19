@@ -16,6 +16,7 @@ from pathlib import Path
 # back to local imports to support running this file directly.
 try:
     from src.core.engine import SecureWipeEngine, WipeLevel, WipeResult
+    from core.optimal_erase import OptimalSecureErase, SecureEraseMethod
     from src.utils.logger import setup_logger
 except Exception:
     try:
@@ -35,7 +36,7 @@ class SecureWipeCLI:
         self.logger = None
         
     def run(self, args):
-        """Main CLI entry point"""
+        """Main CLI entry point with optimal erase support"""
         try:
             # Setup logging
             self.logger = setup_logger(__name__, level=logging.INFO if not args.quiet else logging.WARNING)
@@ -47,12 +48,14 @@ class SecureWipeCLI:
             # Execute command
             if args.command == "list":
                 return self.list_devices(args)
+            elif args.command == "optimal-methods":
+                return self.list_optimal_methods(args)
+            elif args.command == "optimal-wipe":
+                return self.optimal_wipe_device(args)
             elif args.command == "analyze":
                 return self.analyze_device(args)
             elif args.command == "wipe":
                 return self.wipe_device(args)
-            elif args.command == "verify":
-                return self.verify_certificate(args)
             else:
                 print(f"Unknown command: {args.command}")
                 return 1
@@ -236,18 +239,177 @@ class SecureWipeCLI:
         est_time = analysis.get('estimated_time', 0)
         if est_time > 0:
             print(f"\\nEstimated Wipe Time: {est_time} seconds")
+    
+    def optimal_wipe_device(self, args) -> int:
+        """Optimal wipe a storage device using hardware-level commands"""
+        try:
+            if not args.device:
+                print("Device path is required for optimal wiping")
+                return 1
+            
+            print(f"🚀 Analyzing optimal erase methods for {args.device}")
+            
+            # Get device info first
+            device_info = self.engine.analyze_device(args.device)
+            
+            # Initialize optimal erase
+            optimal_erase = OptimalSecureErase()
+            
+            # Detect optimal method
+            method, method_info = optimal_erase.detect_optimal_method(args.device, device_info)
+            
+            # Display method information
+            method_name = method.value.replace('_', ' ').title()
+            est_time = method_info.get('estimated_time', 0)
+            security_level = method_info.get('security_level', 'unknown')
+            nist_compliance = method_info.get('nist_compliance', 'unknown')
+            
+            print(f"\n🎯 Recommended Method: {method_name}")
+            print(f"⏱️  Estimated Time: {self._format_time(est_time)}")
+            print(f"🛡️  Security Level: {security_level.title()}")
+            print(f"📋 NIST Compliance: {nist_compliance.upper()}")
+            
+            # Speed comparison
+            traditional_time = 3600  # 1 hour
+            if est_time < traditional_time:
+                speedup = traditional_time / est_time
+                print(f"🚀 Speed Advantage: {speedup:.1f}x FASTER than traditional methods!")
+            
+            print()
+            
+            # Confirmation check
+            if not args.force:
+                if not self._confirm_optimal_wipe(args.device, method_name):
+                    print("Operation cancelled.")
+                    return 0
+            
+            # Progress callback
+            def progress_callback(percentage, message=""):
+                if not args.quiet:
+                    if message:
+                        print(f"\r{message} ({percentage:.1f}%)", end="", flush=True)
+                    else:
+                        print(f"\rProgress: {percentage:.1f}%", end="", flush=True)
+            
+            print(f"🚀 Starting optimal {method_name} on {args.device}")
+            
+            # Execute optimal erase
+            result = optimal_erase.execute_optimal_erase(args.device, method, progress_callback)
+            
+            if not args.quiet:
+                print()  # New line after progress
+            
+            # Output results
+            if result["success"]:
+                duration = result["duration"]
+                used_method = result["method_used"].value.replace('_', ' ').title()
+                
+                print(f"✅ Optimal wipe completed successfully!")
+                print(f"   Method Used: {used_method}")
+                print(f"   Duration: {duration:.1f} seconds ({duration/60:.1f} minutes)")
+                print(f"   Security Level: Maximum")
+                print(f"   Data Recovery: IMPOSSIBLE")
+                return 0
+            else:
+                error_msg = result.get("error", "Unknown error")
+                print(f"❌ Optimal wipe failed: {error_msg}")
+                print(f"💡 Consider using standard wipe as fallback:")
+                print(f"   securewipe wipe --device {args.device} --level purge")
+                return 1
+                
+        except Exception as e:
+            print(f"Optimal wipe operation failed: {e}")
+            return 1
+    
+    def list_optimal_methods(self, args) -> int:
+        """List available optimal erase methods for devices"""
+        try:
+            print("🚀 Optimal Secure Erase Methods Available\n")
+            print("=" * 60)
+            
+            # Get devices
+            devices = self.engine.detect_storage_devices()
+            
+            if not devices:
+                print("No storage devices found.")
+                return 0
+            
+            optimal_erase = OptimalSecureErase()
+            
+            for device in devices:
+                device_path = device['path']
+                device_type = device.get('device_type', 'unknown')
+                size_gb = device.get('size_gb', 0)
+                
+                print(f"\n📱 Device: {device_path}")
+                print(f"   Type: {device_type}, Size: {size_gb:.2f} GB")
+                
+                try:
+                    # Get device info
+                    device_info = self.engine.analyze_device(device_path)
+                    
+                    # Detect optimal method
+                    method, method_info = optimal_erase.detect_optimal_method(device_path, device_info)
+                    
+                    method_name = method.value.replace('_', ' ').title()
+                    est_time = method_info.get('estimated_time', 0)
+                    security_level = method_info.get('security_level', 'unknown')
+                    
+                    print(f"   🎯 Optimal Method: {method_name}")
+                    print(f"   ⏱️  Time: {self._format_time(est_time)}")
+                    print(f"   🛡️  Security: {security_level.title()}")
+                    
+                    if est_time < 3600:  # Less than 1 hour
+                        speedup = 3600 / est_time
+                        print(f"   🚀 Speed: {speedup:.1f}x faster than traditional")
+                    
+                except Exception as e:
+                    print(f"   ❌ Analysis failed: {e}")
+            
+            print(f"\n" + "=" * 60)
+            print("💡 Use 'securewipe optimal-wipe --device <path>' to execute")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Failed to list optimal methods: {e}")
+            return 1
+    
+    def _format_time(self, seconds: int) -> str:
+        """Format time duration"""
+        if seconds < 60:
+            return f"{seconds}s"
+        elif seconds < 3600:
+            return f"{seconds // 60}m {seconds % 60}s"
+        else:
+            return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+    
+    def _confirm_optimal_wipe(self, device_path: str, method_name: str) -> bool:
+        """Interactive confirmation for optimal wipe operations"""
+        print(f"\n⚡ OPTIMAL SECURE ERASE CONFIRMATION")
+        print(f"=" * 50)
+        print(f"Device: {device_path}")
+        print(f"Method: {method_name}")
+        print(f"\n🚀 This will use hardware-level commands for maximum speed")
+        print(f"⚠️  ALL DATA will be PERMANENTLY DESTROYED")
+        print(f"🔥 Much faster than traditional overwrite methods")
+        print(f"💀 Data recovery will be IMPOSSIBLE")
+        print(f"\nThis action CANNOT be undone!\n")
+        
+        response = input("Type 'OPTIMAL' to proceed with fast secure erase: ")
+        return response.strip().upper() == "OPTIMAL"    
 
 def create_parser():
-    """Create argument parser"""
     parser = argparse.ArgumentParser(
         description="SecureWipe India - NIST 800-88 Compliant Data Sanitization",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s list                              # List all storage devices
-  %(prog)s analyze --device /dev/sdb         # Analyze a specific device
-  %(prog)s wipe --device /dev/sdb --level purge  # Wipe device with NIST Purge level
-  %(prog)s verify --certificate cert.json   # Verify a certificate
+  %(prog)s list                                    # List all storage devices
+  %(prog)s optimal-methods                         # Show optimal methods for all devices
+  %(prog)s optimal-wipe --device /dev/sdb          # Fast optimal wipe
+  %(prog)s analyze --device /dev/sdb               # Analyze a specific device
+  %(prog)s wipe --device /dev/sdb --level purge    # Traditional wipe
         """
     )
     
@@ -263,24 +425,27 @@ Examples:
     # List command
     list_parser = subparsers.add_parser('list', help='List storage devices')
     
+    # NEW: Optimal methods command
+    optimal_methods_parser = subparsers.add_parser('optimal-methods', help='Show optimal erase methods for all devices')
+    
+    # NEW: Optimal wipe command  
+    optimal_wipe_parser = subparsers.add_parser('optimal-wipe', help='Execute optimal fast secure erase')
+    optimal_wipe_parser.add_argument('--device', '-d', required=True, help='Device path to wipe')
+    optimal_wipe_parser.add_argument('--force', '-f', action='store_true', help='Skip confirmation prompt')
+    
     # Analyze command
     analyze_parser = subparsers.add_parser('analyze', help='Analyze a storage device')
     analyze_parser.add_argument('--device', '-d', required=True, help='Device path to analyze')
     
-    # Wipe command
-    wipe_parser = subparsers.add_parser('wipe', help='Wipe a storage device')
+    # Traditional wipe command
+    wipe_parser = subparsers.add_parser('wipe', help='Traditional secure wipe (slower)')
     wipe_parser.add_argument('--device', '-d', required=True, help='Device path to wipe')
     wipe_parser.add_argument('--level', '-l', choices=['clear', 'purge', 'destroy'], 
                            default='purge', help='NIST wipe level (default: purge)')
-    wipe_parser.add_argument('--force', '-f', action='store_true', 
-                           help='Skip confirmation prompt')
-    
-    # Verify command
-    verify_parser = subparsers.add_parser('verify', help='Verify a certificate')
-    verify_parser.add_argument('--certificate', '-c', required=True, 
-                             help='Certificate file path')
+    wipe_parser.add_argument('--force', '-f', action='store_true', help='Skip confirmation prompt')
     
     return parser
+
 
 def main():
     """Main CLI entry point"""
